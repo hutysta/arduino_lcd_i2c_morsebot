@@ -1,0 +1,258 @@
+#define OUTPUT_PIN 10
+
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+int zakladniDelay = 100;
+
+const int TECKA = 0;
+const int CARKA = 1;
+const int MEZERA = 2;
+const int NIC = -2;
+
+int slovnik[26][4] ={
+  {0,1,-2,-2},
+  {1,0,0,0},
+  {1,0,1,0},
+  {1,0,0,-2},
+  {0,-2,-2,-2},//e
+  {0,0,1,0},
+  {1,1,0,-2},
+  {0,0,0,0},
+  {0,0,-2,-2},//i
+  {0,1,1,1},
+  {1,0,1,-2},
+  {0,1,0,0},
+  {1,1,-2,-2},
+  {1,0,-2,-2},
+  {1,1,1,-2},
+  {0,1,1,0},//p
+  {1,1,0,1},
+  {0,1,0,-2},//r
+  {0,0,0,-2},
+  {1,-2,-2,-2},
+  {0,0,1,-2},
+  {0,0,0,1},
+  {0,1,1,-2},
+  {1,0,0,1},
+  {1,0,1,1},
+  {1,1,0,0}//z
+};
+void tecka()
+{
+     digitalWrite(OUTPUT_PIN,HIGH);
+     delay(2*zakladniDelay);
+     digitalWrite(OUTPUT_PIN,LOW);
+     delay(5*zakladniDelay);
+}
+void carka()
+{
+     digitalWrite(OUTPUT_PIN,HIGH);
+     delay(10*zakladniDelay);
+     digitalWrite(OUTPUT_PIN,LOW);
+     delay(5*zakladniDelay);
+}
+void mezera()
+{
+     delay(15*zakladniDelay);
+}
+
+void mezeraMeziPismenama()
+{
+  delay(5*zakladniDelay);
+}
+
+int prevadecCharInt(char znak)
+{
+  
+  return(znak-'a');
+  
+}
+
+void vyblikavac(int indexer){//pozice řádku ve slovníku
+  for(int i=0;i<4;i++){
+    switch(slovnik[indexer][i]){
+       case TECKA: tecka(); break;
+       case CARKA: carka(); break;
+       case NIC: break;
+    }
+  }
+}
+
+
+void Vyblikej(String slovo)
+{
+  lcd.clear();  
+    lcd.print("Morse:");
+    lcd.setCursor(0,1);
+    lcd.print(slovo);
+  int delkaSlova = slovo.length();
+  for(int sCounter = 0;sCounter<delkaSlova;sCounter++)//začátek vyblikávání
+  {
+    if(slovo[sCounter]==' ')
+      mezera();
+    else
+      vyblikavac(prevadecCharInt(slovo[sCounter]));
+    mezeraMeziPismenama();
+  }
+  lcd.clear();
+}
+
+
+
+void setup() {
+  // put your setup code here, to run once:
+  pinMode(OUTPUT_PIN, OUTPUT);
+  pinMode(2,INPUT);
+  lcd.begin();
+  lcd.setCursor(0,0);
+  lcd.clear();
+  Serial.begin(9600);
+  
+}
+bool mezeraZapsana = false;
+bool zapisujem = false;
+int pismeno[4];
+int pismenoIndex = 0;
+String slovo;
+int slovoIndex = 0;
+bool muzuPsat = true;
+long lastTS = 0;//posledni time stamp
+int writeIndex = 0;
+bool state[20]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+bool lastState = LOW;
+bool reference = LOW;
+
+void zapisState()
+{
+  state[writeIndex] = digitalRead(2);
+  writeIndex++; 
+  if(writeIndex>19)
+    writeIndex = 0;
+}
+
+bool jeHrana()
+{
+  bool homogenni = true;
+  for(int i = 1;i<20;i++)//pole obsahuje jen stejné prvky
+  {
+    if(state[0]!=state[i])
+    {
+      homogenni = false;
+      break;
+    }
+  }
+  if((state[0]!=lastState)&&(homogenni))//pole se stejnymy prvky je opakem posledniho zaznamu
+  {
+    lastState=!lastState;
+    return true;    
+  }
+  else
+    return false;
+}
+
+void ZapisPismeno()
+{
+  for(int i = 0;i<26;i++)
+  {
+    for(int j = 0;j<4;j++)
+    {
+      if(slovnik[i][j]!=pismeno[j]) break;
+      else if(j==3)
+      {
+        char ch = 'a'+i;
+        lcd.print(ch);
+        Serial.print(ch);
+        slovo[slovoIndex] = 'a'+i;//nevim
+        break;
+      }
+    }
+  }
+  pismenoIndex=0;
+}
+
+void zapisZnak(int znak)
+{
+  pismeno[pismenoIndex] = znak;
+  pismenoIndex++;
+  if(pismenoIndex==4)
+  {
+    ZapisPismeno();//tu je mozny error
+    muzuPsat = false;
+    mezeraZapsana = false;
+    digitalWrite(OUTPUT_PIN, HIGH);
+  }
+}
+
+void doplnZnaky()
+{
+  if(pismenoIndex<4)
+  {
+    for(int i = pismenoIndex;i<4;i++)
+    {
+      pismeno[i]=-2;
+    }
+    ZapisPismeno();
+  }
+}
+
+void loop() {
+  if(Serial.available()>0)//tuto je změna!!!
+  {
+    String sl = Serial.readString();
+    Vyblikej(sl);
+  }
+  zapisState();
+  /*
+    if(millis()-lastTS>5000)//konec zapisování
+    {
+      //vypisSlovo();
+      zapisujem = false;
+      //Serial.println("\n");
+      digitalWrite(OUTPUT_PIN,LOW);
+    }
+  */
+  if(lastTS!=0&&muzuPsat)
+  {
+    if(millis()-lastTS>1000)
+    {
+      //Serial.println("konec znaku");
+      doplnZnaky();
+      muzuPsat = false;
+      digitalWrite(OUTPUT_PIN,HIGH);
+    }
+  }
+  if (jeHrana())
+  {
+    zapisujem = true;
+    muzuPsat = true;
+    digitalWrite(OUTPUT_PIN,LOW);
+    long TS = millis();
+    long delka = TS - lastTS;
+    if(lastState == LOW)//konec high
+    {
+      if(delka<300)
+      {
+        //Serial.println("tecka");
+        zapisZnak(0);
+      }
+      else
+      {
+        //Serial.println("Carka");
+        zapisZnak(1);
+      }
+    }
+    lastTS = TS;
+  }
+  else if(millis()-lastTS>5000&&!mezeraZapsana)//konec zapisování
+  {
+      //vypisSlovo();
+      //Serial.println();
+      mezeraZapsana = true;
+      digitalWrite(OUTPUT_PIN,LOW);
+      lcd.clear();
+      Serial.println();
+  }
+
+}
